@@ -1,6 +1,10 @@
 let express = require('express');
 let morgan = require('morgan');
 let uuid = require('uuid');
+let mongoose = require('mongoose');
+mongoose.Promise = global.Promise;
+let { PetList } = require('./module.js');
+let{ DATABASE_URL, PORT } = require('./config');
 
 let app = express();
 
@@ -165,6 +169,191 @@ app.put('/blog-posts/:id', jsonParser, (req, res) => {
     })
 })
 
-app.listen('8085', () => {
-    console.log("app running on localhost:8085");
+//MONGOOSE CLASS
+
+app.post('/api/postPet', jsonParser, (req, res, next) => {
+    let {name, typeOfPet, id} = req.body;
+
+    if(!name || !typeOfPet || !id ){
+        res.statusMessage = "Missing field in body";
+        return res.status(406).json({
+            message: "Missing field in body",
+            status: 406
+        });
+    }
+    
+    let newPet = {
+        name, typeOfPet, id
+    };
+    //VALIDATE ID IWTH A GET BY ID
+    PetList.getById(id)
+        .then(pet => {
+            if (pet){
+                return res.status(406).json({
+                    message: "Repeated Pet ID",
+                    status: 406
+                });
+            }
+            else{
+                //POST IT
+                PetList.post(newPet)//it is a promise, so there goes a .then()
+                .then(postedPet => {
+                    return res.status(201).json(postedPet);
+                })
+                .catch(err => {
+                    res.statusMessage = "Something went wrong with the DB";
+                    return res.status(500).json({
+                        message: "Something went wrong with the DB",
+                        status: 500
+                    });
+                 });
+            }
+        })
+        .catch(err => {
+            res.statusMessage = "Something went wrong with the DB";
+            return res.status(500).json({
+                message: "Something went wrong with the DB",
+                status: 500
+            });
+        });
 });
+
+app.get('/api/getPet/:id', (req, res, next) => {
+
+    PetList.getById(req.params.id)
+        .then(pet => {
+            return res.status(201).json(pet);
+        })
+        .catch(err => {
+            res.statusMessage = "Something went wrong with the DB";
+            return res.status(500).json({
+                message: "Something went wrong with the DB",
+                status: 500
+            });
+        });
+});
+
+app.get('/api/getAllPets', (req, res, next) => {
+    PetList.getAll()
+        .then(pet => {
+            return res.status(201).json(pet);
+        })
+        .catch(err => {
+            res.statusMessage = "Something went wrong with the DB";
+            return res.status(500).json({
+                message: "Something went wrong with the DB",
+                status: 500
+            });
+        });
+});
+
+app.put('/api/updatePet', jsonParser, (req, res, next) => {
+    let {name, typeOfPet, id} = req.body;
+
+    if(!name || !typeOfPet || !id ){
+        res.statusMessage = "Missing field in body";
+        return res.status(406).json({
+            message: "Missing field in body",
+            status: 406
+        });
+    }
+
+    let newPet = {
+        name, typeOfPet, id
+    };
+
+    PetList.getById(id)
+        .then(pet => {
+            if (pet){
+                PetList.put(id, newPet)
+                    .then(updatedPet => {
+                        return res.status(201).json(updatedPet);
+                    })
+                    .catch(err => {
+                        res.statusMessage = "Something went wrong with the DB";
+                        return res.status(500).json({
+                            message: "Something went wrong with the DB",
+                            status: 500
+                        });
+                    });
+            }
+            else{
+                return res.status(406).json({
+                    message: "No pet with such ID",
+                    status: 406
+                });
+            }
+        })
+        .catch(err => {
+            res.statusMessage = "Something went wrong with the DB";
+            return res.status(500).json({
+                message: "Something went wrong with the DB",
+                status: 500
+            });
+        });
+});
+
+app.delete('/api/deletePet/:id', (req, res, next) => {
+
+    //Validate ID
+
+    PetList.delete(req.params.id)
+        .then(pet => {
+            return res.status(201).json(pet);
+        })
+        .catch(err => {
+            res.statusMessage = "Something went wrong with the DB";
+            return res.status(500).json({
+                message: "Something went wrong with the DB",
+                status: 500
+            });
+        });
+});
+
+// app.listen('8085', () => {
+//     console.log("app running on localhost:8085");
+// }); This is replaced by the following code snippet"
+
+function runServer(port, databaseUrl){
+    return new Promise( (resolve, reject ) => {
+        mongoose.connect(databaseUrl, response => {
+            if ( response ){
+                return reject(response);
+            }
+            else {
+                server = app.listen(port, () => {
+                    console.log( "App is running on port " + port );
+                    resolve();
+                })
+                .on( 'error', err => {
+                    mongoose.disconnect();
+                    return reject(err);
+                })
+            }
+        });
+    });
+}
+
+function closeServer(){
+    return mongoose.disconnect()
+    .then(() => {
+        return new Promise((resolve, reject) => {
+            console.log('Closing the server');
+            server.close( err => {
+                if (err){
+                    return reject(err);
+                }
+                else{
+                    resolve();
+                }
+            });
+        });
+    });
+}
+   
+runServer( PORT, DATABASE_URL )
+    .catch( err => {
+        console.log( err );
+    });
+   
+   module.exports = { app, runServer, closeServer };
